@@ -1,61 +1,63 @@
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-
+from models import Base, Game, Review
 from conftest import SQLITE_URL
-from models import Game, Review
+
+@pytest.fixture(scope='module')
+def test_db():
+    engine = create_engine(SQLITE_URL)
+    Base.metadata.create_all(engine)  # Create tables
+    connection = engine.connect()
+    transaction = connection.begin()
+
+    yield connection
+
+    transaction.rollback()
+    connection.close()
+
+@pytest.fixture()
+def session(test_db):
+    Session = sessionmaker(bind=test_db)
+    session = Session()
+    yield session
+    session.close()
 
 class TestGame:
-    '''Class Game in models.py'''
+    @pytest.fixture(autouse=True)
+    def setup(self, session):
+        # Add test data
+        self.mario_kart = Game(
+            title="Mario Kart",
+            platform="Switch",
+            genre="Racing",
+            price=60
+        )
+        session.add(self.mario_kart)
+        session.commit()
 
-    # start session, reset db
-    engine = create_engine(SQLITE_URL)
-    Session = sessionmaker(bind=engine)
-    session = Session()
+        self.mk_review_1 = Review(
+            score=10,
+            comment="Wow, what a game",
+            game_id=self.mario_kart.id
+        )
 
-    # add test data
-    mario_kart = Game(
-        title="Mario Kart",
-        platform="Switch",
-        genre="Racing",
-        price=60
-    )
+        self.mk_review_2 = Review(
+            score=8,
+            comment="A classic",
+            game_id=self.mario_kart.id
+        )
 
-    session.add(mario_kart)
-    session.commit()
-
-    mk_review_1 = Review(
-        score=10,
-        comment="Wow, what a game",
-        game_id=mario_kart.id
-    )
-
-    mk_review_2 = Review(
-        score=8,
-        comment="A classic",
-        game_id=mario_kart.id
-    )
-
-    session.bulk_save_objects([mk_review_1, mk_review_2])
-    session.commit()
+        session.add(self.mk_review_1)
+        session.add(self.mk_review_2)
+        session.commit()
 
     def test_game_has_correct_attributes(self):
-        '''has attributes "id", "title", "platform", "genre", "price".'''
-        assert(
-            all(
-                hasattr(
-                    TestGame.mario_kart, attr
-                ) for attr in [
-                    "id",
-                    "title",
-                    "platform",
-                    "genre",
-                    "price"
-                ]))
+        assert all(hasattr(self.mario_kart, attr) for attr in [
+            "id", "title", "platform", "genre", "price"
+        ])
 
     def test_has_associated_reviews(self):
-        '''has two reviews with scores 10 and 8.'''
-        assert(
-            len(TestGame.mario_kart.reviews) == 2 and
-            TestGame.mario_kart.reviews[0].score == 10 and
-            TestGame.mario_kart.reviews[1].score == 8
-        )
+        assert len(self.mario_kart.reviews) == 2
+        assert self.mario_kart.reviews[0].score == 10
+        assert self.mario_kart.reviews[1].score == 8
